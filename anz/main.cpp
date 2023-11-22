@@ -44,8 +44,8 @@ int main()
             face,
             0,              // char_width 0일시 height와 동기화됨
             FONT_SIZE * 64, // char_height, FONT_SIZE pt
-            0,            // horizontal device 해상도
-            0             // vertical device 해상도
+            0,            // horizontal device resolution
+            0             // vertical device resolution, 둘다 0일시 자동으로 72 dpi로 설정됨.
             ))
         abort();
 
