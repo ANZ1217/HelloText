@@ -1,8 +1,8 @@
 CC = g++
-CXXFLAGS = -Wall -O2 -std=c17
+CXXFLAGS = -Wall -O2 -std=c++17
 
 HB_PKGS = harfbuzz
-FT_PKGS = harfbuzz cairo-ft freetype2
+FT_PKGS = harfbuzz cairo-ft freetype2 fribidi
 
 HB_CFLAGS = `pkg-config --cflags $(HB_PKGS)`
 HB_LDFLAGS = `pkg-config --libs $(HB_PKGS)` -lm

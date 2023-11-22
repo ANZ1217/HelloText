@@ -1,3 +1,9 @@
+#include <iostream>
+#include <string>
+#include <cmath>
+#include <vector>
+#include <cassert>
+
 #include <ft2build.h>
 #include FT_FREETYPE_H
 // for freetype
@@ -10,12 +16,12 @@
 #include <cairo-ft.h>
 // for cairo
 
-#include <iostream>
-#include <string>
-#include <cmath>
+#include <fribidi/fribidi.h>
+// for fribidi
 
 const int FONT_SIZE = 36;
 const double MARGIN = FONT_SIZE * .5;
+const int MAX_STR_LEN = 10000;
 
 int main()
 {
@@ -29,7 +35,7 @@ int main()
     // font file로 부터 font face 로딩
     FT_Face face;
     if (error = FT_New_Face(library,
-                            "../NotoSans-Regular.ttf",
+                            "../arial.ttf",
                             0,
                             &face))
         abort();
@@ -44,8 +50,8 @@ int main()
             face,
             0,              // char_width 0일시 height와 동기화됨
             FONT_SIZE * 64, // char_height, FONT_SIZE pt
-            0,            // horizontal device resolution
-            0             // vertical device resolution, 둘다 0일시 자동으로 72 dpi로 설정됨.
+            0,              // horizontal device resolution
+            0               // vertical device resolution, 둘다 0일시 자동으로 72 dpi로 설정됨.
             ))
         abort();
 
@@ -81,6 +87,52 @@ int main()
         }
     */
 
+    std::string str = "Ленивый рыжий кот شَدَّة latin العَرَبِية";
+
+    // Fribidi 사용하기
+    std::vector<FriBidiChar> fribidi_in_char(MAX_STR_LEN);
+
+    // charset을 unicode로 바꿈
+    FriBidiStrIndex fribidi_len = fribidi_charset_to_unicode(
+        FRIBIDI_CHAR_SET_UTF8,
+        str.c_str(),
+        str.size(),
+        fribidi_in_char.data());
+
+    FriBidiCharType fribidi_pbase_dir = FRIBIDI_TYPE_LTR;
+    std::vector<FriBidiChar> fribidi_visual_char(MAX_STR_LEN + 1);
+
+    std::cout << "Before Fribidi: " << str << '\n';
+
+    // RTL은 반대로 뒤집어줌
+    fribidi_boolean stat = fribidi_log2vis(
+        /* input */
+        fribidi_in_char.data(), // unicode input string
+        fribidi_len, // length
+        &fribidi_pbase_dir, // input and outpu base direction
+        /* output */
+        fribidi_visual_char.data(), // visual string
+        NULL, // logical string to visual string position mapping
+        NULL, // visual string to logical string positino mapping
+        NULL // 각 character의 분류
+    );
+
+    if(!stat) abort();
+
+    std::string str_after_fribidi(MAX_STR_LEN, 0);
+
+    // unicode를 charset으로 바꿈
+    const FriBidiStrIndex new_len = fribidi_unicode_to_charset(FRIBIDI_CHAR_SET_UTF8,
+                                                        fribidi_visual_char.data(),
+                                                        fribidi_len,
+                                                        str_after_fribidi.data());
+
+    assert(new_len < MAX_STR_LEN);
+    str_after_fribidi.resize(new_len);
+
+    std::cout << "After Fribidi: " << str_after_fribidi << '\n';
+    std::cout << '\n';
+
     // Size 조정 직접 하지 않고 HarfBuzz 사용해보기
 
     // hb create
@@ -91,13 +143,11 @@ int main()
     hb_buffer_t *hb_buffer;
     hb_buffer = hb_buffer_create();
 
-    std::string str = "Hello, Text!";
-
-    hb_buffer_add_utf8(hb_buffer,
-                       str.c_str(),
-                       -1,  // str의 length, NULL이 terminator면 -1
-                       0,   // buffer의 offset
-                       -1); // 몇 글자 넣을건지, 전부면 -1
+    hb_buffer_add_utf8( hb_buffer,
+                        str_after_fribidi.c_str(),
+                        -1,  // str의 length, NULL이 terminator면 -1
+                        0,   // buffer의 offset
+                        -1); // 몇 글자 넣을건지, 전부면 -1
     hb_buffer_guess_segment_properties(hb_buffer);
 
     // 만든다
@@ -122,14 +172,12 @@ int main()
         char glyphname[32];
         hb_font_get_glyph_name(hb_font, gid, glyphname, sizeof(glyphname));
 
-        /*
-                std::cout << "Glyph: " << glyphname << "\t\t";
-                std::cout << "Gid: " << gid << "\t\t";
-                std::cout << "Cluster: " << cluster << '\n';
-                std::cout << "Advance: (" << x_advance << ", " << y_advance << ")\t";
-                std::cout << "Offset: (" << x_offset << ", " << y_offset << ")\t";
-                std::cout << '\n';
-                */
+//        std::cout << "Glyph: " << glyphname << "\t\t";
+//        std::cout << "Gid: " << gid << "\t\t";
+//        std::cout << "Cluster: " << cluster << '\n';
+//        std::cout << "Advance: (" << x_advance << ", " << y_advance << ")\t";
+//        std::cout << "Offset: (" << x_offset << ", " << y_offset << ")\t";
+//        std::cout << '\n';
     }
 
     // 절대 위치로 변경
@@ -226,6 +274,8 @@ int main()
         cairo_glyphs[i].index = info[i].codepoint;
         cairo_glyphs[i].x = current_x + pos[i].x_offset / 64.;
         cairo_glyphs[i].y = -(current_y + pos[i].y_offset / 64.);
+        // cairo_glyphs[i].x = current_x;
+        // cairo_glyphs[i].y = current_y;
         current_x += pos[i].x_advance / 64.;
         current_y += pos[i].y_advance / 64.;
     }
