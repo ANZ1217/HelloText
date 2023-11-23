@@ -4,6 +4,9 @@
 #include <vector>
 #include <cassert>
 
+#include <fontconfig/fontconfig.h>
+// for fontconfig
+
 #include <ft2build.h>
 #include FT_FREETYPE_H
 // for freetype
@@ -19,13 +22,78 @@
 #include <fribidi/fribidi.h>
 // for fribidi
 
+const char *FONT_NAME = "Arial";
 const int FONT_SIZE = 36;
 const double MARGIN = FONT_SIZE * .5;
 const int MAX_STR_LEN = 10000;
 
-int main()
-{
+const std::string str = "Ленивый рыжий кот شَدَّة latin العَرَبِية";
+
+namespace
+{ // global variables
+
+    FcConfig *config;
+    FcPattern *pat;
+    FcPattern *font;
+
     FT_Library library;
+    FT_Face face;
+
+    hb_font_t *hb_font;
+    hb_buffer_t *hb_buffer;
+
+    hb_glyph_info_t *info;
+    hb_glyph_position_t *pos;
+
+    cairo_surface_t *cairo_surface;
+    cairo_t *cr;
+    cairo_font_face_t *cairo_face;
+}
+
+std::string my_fontconfig()
+{
+    // FontConfig 사용하기
+
+    FcInit(); // initializes Fontconfig
+
+    // 현재 기기의 FontConfig, Font 로드
+    config = FcInitLoadConfigAndFonts();
+
+    // Font Name으로 패턴 만듬
+    pat = FcNameParse((const FcChar8 *)FONT_NAME);
+
+    // 매치 가능한 범위를 늘려줌
+    FcConfigSubstitute(config, pat, FcMatchPattern);
+    FcDefaultSubstitute(pat);
+
+    std::string fontFile;
+
+    // 폰트를 찾는다
+    FcResult result;
+    font = FcFontMatch(config, pat, &result);
+    if (font)
+    {
+        FcChar8 *file = NULL;
+        if (FcPatternGetString(font, FC_FILE, 0, &file) == FcResultMatch)
+        {
+            // fontFile = (char*)file;
+            // 이 file FcPattern* font에 binding 되어 있다.
+            // 따라서 font가 destroy되면, file 자동으로 없어진다.
+            // 이 에러를 없애기 위해서는 fileName을 deepcopy하면 된다.
+
+            fontFile = (char *)file;
+
+            std::cout << "fontFile: " << fontFile << '\n';
+        }
+    }
+
+    std::cout << "\n";
+
+    return fontFile;
+}
+
+void my_freetype(std::string &fontFile)
+{
     FT_Error error;
 
     // library 초기화
@@ -33,9 +101,8 @@ int main()
         abort();
 
     // font file로 부터 font face 로딩
-    FT_Face face;
     if (error = FT_New_Face(library,
-                            "../arial.ttf",
+                            fontFile.c_str(),
                             0,
                             &face))
         abort();
@@ -61,6 +128,8 @@ int main()
     */
 
     /*
+        // 아래와 같이 직접 shaping 해볼 수 있다.
+
         // Glyph Image 로드
         std::string str = "Hello, Text!";
         FT_GlyphSlot slot = face->glyph;
@@ -86,9 +155,10 @@ int main()
             cur_y += slot->advance.y / 64; // 지금은 필요 없음
         }
     */
+}
 
-    std::string str = "Ленивый рыжий кот شَدَّة latin العَرَبِية";
-
+std::string my_fribidi()
+{
     // Fribidi 사용하기
     std::vector<FriBidiChar> fribidi_in_char(MAX_STR_LEN);
 
@@ -108,24 +178,25 @@ int main()
     fribidi_boolean stat = fribidi_log2vis(
         /* input */
         fribidi_in_char.data(), // unicode input string
-        fribidi_len, // length
-        &fribidi_pbase_dir, // input and outpu base direction
+        fribidi_len,            // length
+        &fribidi_pbase_dir,     // input and outpu base direction
         /* output */
         fribidi_visual_char.data(), // visual string
-        NULL, // logical string to visual string position mapping
-        NULL, // visual string to logical string positino mapping
-        NULL // 각 character의 분류
+        NULL,                       // logical string to visual string position mapping
+        NULL,                       // visual string to logical string position mapping
+        NULL                        // 각 character의 분류
     );
 
-    if(!stat) abort();
+    if (!stat)
+        abort();
 
     std::string str_after_fribidi(MAX_STR_LEN, 0);
 
     // unicode를 charset으로 바꿈
     const FriBidiStrIndex new_len = fribidi_unicode_to_charset(FRIBIDI_CHAR_SET_UTF8,
-                                                        fribidi_visual_char.data(),
-                                                        fribidi_len,
-                                                        str_after_fribidi.data());
+                                                               fribidi_visual_char.data(),
+                                                               fribidi_len,
+                                                               str_after_fribidi.data());
 
     assert(new_len < MAX_STR_LEN);
     str_after_fribidi.resize(new_len);
@@ -133,21 +204,24 @@ int main()
     std::cout << "After Fribidi: " << str_after_fribidi << '\n';
     std::cout << '\n';
 
-    // Size 조정 직접 하지 않고 HarfBuzz 사용해보기
+    return str_after_fribidi;
+}
+
+void my_harfbuzz(std::string str)
+{
+    // HarfBuzz 사용해보기
 
     // hb create
-    hb_font_t *hb_font;
     hb_font = hb_ft_font_create(face, NULL);
 
     // hb buffer create
-    hb_buffer_t *hb_buffer;
     hb_buffer = hb_buffer_create();
 
-    hb_buffer_add_utf8( hb_buffer,
-                        str_after_fribidi.c_str(),
-                        -1,  // str의 length, NULL이 terminator면 -1
-                        0,   // buffer의 offset
-                        -1); // 몇 글자 넣을건지, 전부면 -1
+    hb_buffer_add_utf8(hb_buffer,
+                       str.c_str(),
+                       -1,  // str의 length, NULL이 terminator면 -1
+                       0,   // buffer의 offset
+                       -1); // 몇 글자 넣을건지, 전부면 -1
     hb_buffer_guess_segment_properties(hb_buffer);
 
     // 만든다
@@ -155,8 +229,8 @@ int main()
 
     // information 획득
     unsigned int len = hb_buffer_get_length(hb_buffer);
-    hb_glyph_info_t *info = hb_buffer_get_glyph_infos(hb_buffer, NULL);
-    hb_glyph_position_t *pos = hb_buffer_get_glyph_positions(hb_buffer, NULL);
+    info = hb_buffer_get_glyph_infos(hb_buffer, NULL);
+    pos = hb_buffer_get_glyph_positions(hb_buffer, NULL);
 
     // Raw data 출력
     std::cout << "Raw buffer: \n";
@@ -172,15 +246,15 @@ int main()
         char glyphname[32];
         hb_font_get_glyph_name(hb_font, gid, glyphname, sizeof(glyphname));
 
-//        std::cout << "Glyph: " << glyphname << "\t\t";
-//        std::cout << "Gid: " << gid << "\t\t";
-//        std::cout << "Cluster: " << cluster << '\n';
-//        std::cout << "Advance: (" << x_advance << ", " << y_advance << ")\t";
-//        std::cout << "Offset: (" << x_offset << ", " << y_offset << ")\t";
-//        std::cout << '\n';
+        //        std::cout << "Glyph: " << glyphname << "\t\t";
+        //        std::cout << "Gid: " << gid << "\t\t";
+        //        std::cout << "Cluster: " << cluster << '\n';
+        //        std::cout << "Advance: (" << x_advance << ", " << y_advance << ")\t";
+        //        std::cout << "Offset: (" << x_offset << ", " << y_offset << ")\t";
+        //        std::cout << '\n';
     }
 
-    // 절대 위치로 변경
+    // 절대 위치 출력해보기
     std::cout << "Converted to absolute positions:\n";
     {
         double current_x = 0.;
@@ -207,11 +281,15 @@ int main()
 
         std::cout << '\n';
     }
+}
 
+void my_cairo()
+{
     // Cairo를 이용해 그리기
     double width = 2 * MARGIN;
     double height = 2 * MARGIN;
 
+    unsigned int len = hb_buffer_get_length(hb_buffer);
     for (unsigned int i = 0; i < len; i++)
     {
         width += pos[i].x_advance / 64.;
@@ -224,13 +302,11 @@ int main()
         width += FONT_SIZE;
 
     // Cairo surface create
-    cairo_surface_t *cairo_surface;
     cairo_surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
                                                ceil(width),
                                                ceil(height));
 
     // Cairo create
-    cairo_t *cr;
     cr = cairo_create(cairo_surface);
     cairo_set_source_rgba(cr, 1., 1., 1., 1.);
     cairo_paint(cr);
@@ -238,7 +314,6 @@ int main()
     cairo_translate(cr, MARGIN, MARGIN); // 현재 변환 행렬 수정 (Margin, Margin)으로
 
     // Cairo Font Face 설정
-    cairo_font_face_t *cairo_face;
     cairo_face = cairo_ft_font_face_create_for_ft_face(face, 0);
     cairo_set_font_face(cr, cairo_face);
     cairo_set_font_size(cr, FONT_SIZE);
@@ -284,16 +359,33 @@ int main()
     cairo_glyph_free(cairo_glyphs);
 
     cairo_surface_write_to_png(cairo_surface, "out.png");
+}
 
-    { // destroy
-        cairo_font_face_destroy(cairo_face);
-        cairo_destroy(cr);
-        cairo_surface_destroy(cairo_surface);
+void destroy()
+{
+    cairo_font_face_destroy(cairo_face);
+    cairo_destroy(cr);
+    cairo_surface_destroy(cairo_surface);
 
-        hb_buffer_destroy(hb_buffer);
-        hb_font_destroy(hb_font);
+    hb_buffer_destroy(hb_buffer);
+    hb_font_destroy(hb_font);
 
-        FT_Done_Face(face);
-        FT_Done_FreeType(library);
-    }
+    FT_Done_Face(face);
+    FT_Done_FreeType(library);
+
+    FcPatternDestroy(font);  // needs to be called for every pattern created; in this case, 'fontFile' / 'file' is also freed
+    FcPatternDestroy(pat);   // needs to be called for every pattern created
+    FcConfigDestroy(config); // needs to be called for every config created
+    FcFini();                // uninitializes Fontconfig
+}
+
+int main()
+{
+    std::string fontFile = my_fontconfig();
+    my_freetype(fontFile);
+    std::string newString = my_fribidi();
+    my_harfbuzz(newString);
+    my_cairo();
+
+    destroy();
 }
