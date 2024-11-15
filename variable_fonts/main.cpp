@@ -13,6 +13,7 @@
 
 #include <hb.h>
 #include <hb-ft.h>
+#include <hb-ot.h>
 // for harfbuzz
 
 #include <cairo.h>
@@ -23,6 +24,7 @@ const char* FONT_FILE = "./NotoSans-VariableFont_wdth,wght.ttf";
 const int FONT_SIZE = 72;
 const double MARGIN = FONT_SIZE * .5;
 const int MAX_STR_LEN = 10000;
+const int AXIS_CNT = 2;
 
 const char* WEIGHT_NAME = "Weight";
 const char* WIDTH_NAME = "Width";
@@ -54,6 +56,13 @@ void ShapeText()
 
     hb_buffer_add_utf8(hb_buffer, str.c_str(), -1, 0, -1);
     hb_buffer_guess_segment_properties(hb_buffer);
+
+    hb_variation_t variations[AXIS_CNT];
+    variations[0].tag = HB_OT_TAG_VAR_AXIS_WEIGHT;
+    variations[0].value = weight;
+    variations[1].tag = HB_OT_TAG_VAR_AXIS_WIDTH;
+    variations[1].value = width;
+    hb_font_set_variations(hb_font, variations, AXIS_CNT);
 
     hb_shape(hb_font, hb_buffer, NULL, 0);
 
