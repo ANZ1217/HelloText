@@ -150,6 +150,20 @@ void Destroy()
     FT_Done_FreeType(library);
 }
 
+std::string tag_to_string(FT_ULong tag)
+{
+    // the tag is same format as used in Harfbuzz. If you don't need the actual string, you don't need to change it.
+
+    char buffer[5];
+    buffer[0] = (tag >> 24) & 0xFF;
+    buffer[1] = (tag >> 16) & 0xFF;
+    buffer[2] = (tag >> 8) & 0xFF;
+    buffer[3] = tag & 0xFF;
+    buffer[4] = 0;
+
+    return std::string(buffer);
+}
+
 int main(int argc, char* argv[])
 {
     printf("How to use: ./variable_fonts [weight] [width] [text].\n");
@@ -182,7 +196,10 @@ int main(int argc, char* argv[])
         printf("Variable Count: %d\n", mm_var->num_axis);
         for(int i=0;i<mm_var->num_axis;i++)
         {
+            printf("----------");
             printf("Variable: %s\n", mm_var->axis[i].name);
+            printf("tag: %s\n", tag_to_string(mm_var->axis[i].tag).c_str());
+
             if(strcmp(mm_var->axis[i].name, WEIGHT_NAME) == 0)
             {
                 printf("Weight detected.\n");
